@@ -1,0 +1,1885 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Microrobots: Colossus Engine</title>
+<style>
+:root{--joy:120px;--ink:#e8eef2;--edge:rgba(190,215,230,.35);--glass:rgba(14,20,26,.55);--hot:#6fd3ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#0b0f13;color:var(--ink);font:500 14px system-ui,sans-serif;overscroll-behavior:none;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+.zone{position:fixed;top:0;bottom:0;z-index:2}#zl{left:0;width:50%}#zr{right:0;width:50%}
+#joy{position:fixed;width:var(--joy);height:var(--joy);margin:calc(var(--joy)/-2) 0 0 calc(var(--joy)/-2);border:2px solid var(--edge);border-radius:50%;background:var(--glass);display:none;z-index:3;pointer-events:none}
+#knob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;background:var(--hot);opacity:.8}
+.btn{position:fixed;z-index:4;border:2px solid var(--edge);background:var(--glass);color:var(--ink);border-radius:50%;width:calc(var(--joy)*.6);height:calc(var(--joy)*.6);font:inherit;touch-action:none}
+.btn.on{background:var(--hot);color:#06222e}
+#jump{right:max(22px,env(safe-area-inset-right));bottom:max(28px,env(safe-area-inset-bottom))}
+#run{right:calc(max(22px,env(safe-area-inset-right)) + var(--joy)*.7);bottom:calc(max(28px,env(safe-area-inset-bottom)) + var(--joy)*.25)}
+#open{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));width:44px;height:44px;border-radius:12px}
+.hud{position:fixed;z-index:4;left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top));padding:6px 10px;border-radius:10px;background:var(--glass);border:1px solid var(--edge);pointer-events:none;line-height:1.5}
+#perf{top:calc(max(12px,env(safe-area-inset-top)) + 66px);font-variant-numeric:tabular-nums}
+.pb{position:fixed;z-index:4;right:max(12px,env(safe-area-inset-right));width:88px;height:40px;border-radius:12px;border:2px solid var(--edge);background:var(--glass);color:var(--ink);font:inherit;touch-action:none}
+.pb.on{background:var(--hot);color:#06222e}
+#bsel,#bhand{top:max(12px,env(safe-area-inset-top))}#bhand{right:calc(max(12px,env(safe-area-inset-right)) + 64px)}#bsel{right:calc(max(12px,env(safe-area-inset-right)) + 160px)}#bgrab{top:calc(max(12px,env(safe-area-inset-top)) + 54px)}#bpoint{top:calc(max(12px,env(safe-area-inset-top)) + 100px)}#bsmash{top:calc(max(12px,env(safe-area-inset-top)) + 146px)}
+#toast{position:fixed;z-index:6;left:50%;bottom:22%;transform:translateX(-50%);max-width:80vw;text-align:center;padding:8px 14px;border-radius:10px;background:var(--glass);border:1px solid var(--edge);opacity:0;transition:opacity .2s;pointer-events:none}
+#panel{position:fixed;z-index:10;inset:0;background:rgba(8,12,16,.82);display:flex;align-items:center;justify-content:center;touch-action:auto}
+#panel[hidden]{display:none}
+#panel form{width:min(92vw,380px);max-height:92vh;overflow:auto;padding:18px;border:1px solid var(--edge);border-radius:14px;background:#10171d;display:grid;gap:14px;touch-action:pan-y}
+#panel label{display:grid;gap:6px}#panel select,#panel input[type=range]{width:100%}
+#panel select,#panel button{padding:10px;border-radius:8px;border:1px solid var(--edge);background:#18222b;color:var(--ink);font:inherit}
+</style></head><body>
+<div id="zl" class="zone"></div><div id="zr" class="zone"></div>
+<div id="joy"><div id="knob"></div></div>
+<div class="hud" id="mode">Modo: exploração</div><div class="hud" id="perf"></div>
+<button class="btn" id="run">Correr</button><button class="btn" id="jump">Pular</button>
+<button class="btn" id="open" aria-label="Configurações">&#9881;</button>
+<button class="pb" id="bsel">Mão</button><button class="pb" id="bhand">Ativar</button><button class="pb" id="bgrab">Agarrar</button><button class="pb" id="bpoint">Apontar</button><button class="pb" id="bsmash">Golpear</button>
+<div id="toast"></div>
+<div id="panel" hidden><form onsubmit="return false">
+<label>Qualidade gráfica<select id="q"><option value="low">Baixo</option><option value="medium">Médio</option><option value="high">Alto</option></select></label>
+<label>Distância de renderização (setores)<input id="rd" type="range" min="1" max="6" step="1"></label>
+<label>Sensibilidade da câmera<input id="cs" type="range" min="0.4" max="2" step="0.1"></label>
+<label>Tamanho do joystick<input id="js" type="range" min="90" max="180" step="5"></label>
+<label>Microrrobôs (total)<input id="un" type="range" min="500" max="8000" step="100"></label>
+<label><span><input id="pf" type="checkbox"> Mostrar desempenho</span></label>
+<button id="rst" type="button">Reiniciar posição</button><button id="close" type="button">Fechar</button>
+</form></div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+// ---- perf ----
+const PROF = {
+    low: { pr: 1, shadow: 0, radius: 2, units: 2500 }, medium: { pr: 1.5, shadow: 1024, radius: 3, units: 4000 }, high: { pr: 2, shadow: 2048, radius: 5, units: 7000 }
+};
+// Resolução adaptativa: reduz a escala se o FPS cair; só sobe após período de espera (evita oscilação).
+class Perf {
+    constructor(onScale) {
+        this.onScale = onScale;
+        this.scale = 1;
+        this.maxPR = 1.5;
+        this.show = true;
+        this.el = document.getElementById('perf');
+        this.ms = 16;
+        this.acc = 0;
+        this.frames = 0;
+        this.cool = 0;
+    }
+    tick(dt) {
+        this.ms += (dt * 1000 - this.ms) * .05;
+        this.acc += dt;
+        this.frames++;
+        if (this.acc < 1)
+            return;
+        const fps = this.frames / this.acc;
+        this.cool = Math.max(0, this.cool - 1);
+        if (fps < 26 && this.scale > .55) {
+            this.scale = Math.max(.55, this.scale - .1);
+            this.cool = 8;
+            this.onScale();
+        }
+        else if (fps >= 57 && this.scale < 1 && this.cool === 0) {
+            this.scale = Math.min(1, this.scale + .05);
+            this.onScale();
+        }
+        if (this.show)
+            this.el.textContent = `${Math.round(fps)} FPS  ${this.ms.toFixed(1)} ms  res ${Math.round(this.scale * 100)}%`;
+        this.frames = 0;
+        this.acc = 0;
+    }
+}
+
+// ---- input ----
+// Multitouch com Pointer Events: um ponteiro por zona (joystick à esquerda, câmera à direita).
+class Input {
+    get running() { return this.run || this.keys.has('ShiftLeft'); }
+    constructor() {
+        this.mx = 0;
+        this.my = 0;
+        this.lx = 0;
+        this.ly = 0;
+        this.jump = false;
+        this.run = false;
+        this.joyId = -1;
+        this.keys = new Set();
+        const $ = (id) => document.getElementById(id);
+        const zl = $('zl'), zr = $('zr'), joy = $('joy'), knob = $('knob'), runB = $('run'), jumpB = $('jump');
+        let ox = 0, oy = 0, cid = -1, px = 0, py = 0;
+        const stick = (e) => {
+            const R = joy.offsetWidth / 2;
+            let dx = e.clientX - ox, dy = e.clientY - oy;
+            const l = Math.hypot(dx, dy);
+            if (l > R) {
+                dx *= R / l;
+                dy *= R / l;
+            }
+            knob.style.transform = `translate(${dx}px,${dy}px)`;
+            const m = Math.min(l, R) / R;
+            this.mx = m < .12 ? 0 : dx / R;
+            this.my = m < .12 ? 0 : -dy / R;
+        };
+        const endJoy = (e) => { if (e.pointerId !== this.joyId)
+            return; this.joyId = -1; this.mx = this.my = 0; joy.style.display = 'none'; knob.style.transform = ''; };
+        zl.addEventListener('pointerdown', e => {
+            if (this.joyId >= 0)
+                return;
+            this.joyId = e.pointerId;
+            zl.setPointerCapture(e.pointerId);
+            ox = e.clientX;
+            oy = e.clientY;
+            joy.style.display = 'block';
+            joy.style.left = ox + 'px';
+            joy.style.top = oy + 'px';
+            stick(e);
+        });
+        zl.addEventListener('pointermove', e => { if (e.pointerId === this.joyId)
+            stick(e); });
+        zl.addEventListener('pointerup', endJoy);
+        zl.addEventListener('pointercancel', endJoy);
+        zr.addEventListener('pointerdown', e => { if (cid >= 0)
+            return; cid = e.pointerId; zr.setPointerCapture(e.pointerId); px = e.clientX; py = e.clientY; });
+        zr.addEventListener('pointermove', e => { if (e.pointerId !== cid)
+            return; this.lx += e.clientX - px; this.ly += e.clientY - py; px = e.clientX; py = e.clientY; });
+        const endCam = (e) => { if (e.pointerId === cid)
+            cid = -1; };
+        zr.addEventListener('pointerup', endCam);
+        zr.addEventListener('pointercancel', endCam);
+        jumpB.addEventListener('pointerdown', e => { e.preventDefault(); this.jump = true; });
+        runB.addEventListener('click', () => { this.run = !this.run; runB.classList.toggle('on', this.run); });
+        addEventListener('keydown', e => { this.keys.add(e.code); if (e.code === 'Space') {
+            this.jump = true;
+            e.preventDefault();
+        } });
+        addEventListener('keyup', e => this.keys.delete(e.code));
+        addEventListener('blur', () => this.keys.clear());
+    }
+    poll() {
+        if (this.joyId >= 0)
+            return;
+        const k = this.keys, x = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0), y = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0), l = Math.hypot(x, y) || 1;
+        this.mx = x / l;
+        this.my = y / l;
+    }
+}
+
+// ---- world ----
+
+const S = 64, STEP = .35, key = (x, z) => x + ',' + z;
+const rng = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+const hash = (x, z) => (Math.imul(x, 73856093) ^ Math.imul(z, 19349663)) >>> 0;
+const cv = (n, f) => { const c = document.createElement('canvas'); c.width = c.height = n; f(c.getContext('2d'), n); return c; };
+const tex = (c, srgb, an) => { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = an; if (srgb)
+    t.colorSpace = THREE.SRGBColorSpace; return t; };
+const V = new THREE.Vector3(), Sc = new THREE.Vector3(), Q = new THREE.Quaternion(), M = new THREE.Matrix4(), C = new THREE.Color();
+function plateMaps(an) {
+    const r = rng(7);
+    const col = cv(1024, (g, n) => {
+        const p = n / 4;
+        for (let i = 0; i < 16; i++) {
+            const v = (r() * 26 - 13) | 0;
+            g.fillStyle = `rgb(${112 + v},${118 + v},${125 + v})`;
+            g.fillRect((i % 4) * p, (i >> 2) * p, p, p);
+        }
+        for (let i = 0; i < 6000; i++) {
+            const l = r() < .5 ? 255 : 0;
+            g.fillStyle = `rgba(${l},${l},${l},${r() * .07})`;
+            g.fillRect(r() * n, r() * n, 30 + r() * 200, 1);
+        }
+        g.fillStyle = '#15191d';
+        for (let k = 0; k <= 4; k++) {
+            g.fillRect(k * p - 2, 0, 4, n);
+            g.fillRect(0, k * p - 2, n, 4);
+        }
+        g.fillStyle = '#aab6be';
+        for (let i = 0; i < 4; i++)
+            for (let j = 0; j < 4; j++)
+                for (const [a, b] of [[14, 14], [p - 14, 14], [14, p - 14], [p - 14, p - 14]]) {
+                    g.beginPath();
+                    g.arc(i * p + a, j * p + b, 3.5, 0, 6.283);
+                    g.fill();
+                }
+    });
+    const rough = cv(1024, (g, n) => {
+        g.fillStyle = '#a6a6a6';
+        g.fillRect(0, 0, n, n);
+        for (let i = 0; i < 7000; i++) {
+            const v = (120 + r() * 110) | 0;
+            g.fillStyle = `rgba(${v},${v},${v},.5)`;
+            g.fillRect(r() * n, r() * n, 20 + r() * 220, 1);
+        }
+        g.strokeStyle = '#4a4a4a';
+        for (let i = 0; i < 60; i++) {
+            const x = r() * n, y = r() * n, a = r() * 6.283, l = 20 + r() * 90;
+            g.beginPath();
+            g.moveTo(x, y);
+            g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+            g.stroke();
+        }
+        g.fillStyle = '#fff';
+        const p = n / 4;
+        for (let k = 0; k <= 4; k++) {
+            g.fillRect(k * p - 2, 0, 4, n);
+            g.fillRect(0, k * p - 2, n, 4);
+        }
+    });
+    return [tex(col, true, an), tex(rough, false, an)];
+}
+function wallMaps(an) {
+    const r = rng(11);
+    const col = cv(512, (g, n) => {
+        g.fillStyle = '#59616a';
+        g.fillRect(0, 0, n, n);
+        for (let i = 0; i < 3000; i++) {
+            const l = r() < .5 ? 255 : 0;
+            g.fillStyle = `rgba(${l},${l},${l},${r() * .08})`;
+            g.fillRect(r() * n, r() * n, 1, 20 + r() * 160);
+        }
+        g.fillStyle = '#1a1e22';
+        for (let k = 0; k < 4; k++)
+            g.fillRect(0, k * 128 - 1, n, 3);
+    });
+    const rough = cv(512, (g, n) => {
+        g.fillStyle = '#989898';
+        g.fillRect(0, 0, n, n);
+        for (let i = 0; i < 3000; i++) {
+            const v = (100 + r() * 130) | 0;
+            g.fillStyle = `rgba(${v},${v},${v},.5)`;
+            g.fillRect(r() * n, r() * n, 1, 20 + r() * 160);
+        }
+    });
+    return [tex(col, true, an), tex(rough, false, an)];
+}
+class World {
+    constructor(an) {
+        this.root = new THREE.Group();
+        this.radius = 3;
+        this.sectors = new Map();
+        this.cx = 1e9;
+        this.cz = 1e9;
+        this.plane = new THREE.PlaneGeometry(S, S).rotateX(-Math.PI / 2);
+        this.cube = new THREE.BoxGeometry(1, 1, 1);
+        const [fc, fr] = plateMaps(an), [wc, wr] = wallMaps(an);
+        this.floorMat = new THREE.MeshStandardMaterial({ map: fc, roughnessMap: fr, roughness: 1, metalness: .85, envMapIntensity: .8 });
+        this.wallMat = new THREE.MeshStandardMaterial({ map: wc, roughnessMap: wr, roughness: 1, metalness: .8, envMapIntensity: .8 });
+    }
+    get mats() { return [this.floorMat, this.wallMat]; }
+    update(x, z) { const sx = Math.floor(x / S), sz = Math.floor(z / S); if (sx === this.cx && sz === this.cz)
+        return; this.cx = sx; this.cz = sz; this.refresh(); }
+    setRadius(r) { this.radius = r; this.refresh(); }
+    refresh() {
+        if (this.cx > 1e8)
+            return;
+        const R = this.radius;
+        for (let dz = -R; dz <= R; dz++)
+            for (let dx = -R; dx <= R; dx++) {
+                const k = key(this.cx + dx, this.cz + dz);
+                if (!this.sectors.has(k))
+                    this.sectors.set(k, this.build(this.cx + dx, this.cz + dz));
+            }
+        for (const [k, s] of this.sectors)
+            if (Math.abs(s.sx - this.cx) > R + 1 || Math.abs(s.sz - this.cz) > R + 1) {
+                this.root.remove(s.group);
+                s.group.traverse(o => { if (o.isInstancedMesh)
+                    o.dispose(); });
+                this.sectors.delete(k);
+            }
+    }
+    build(sx, sz) {
+        const g = new THREE.Group(), boxes = [], h = hash(sx, sz), r = rng(h);
+        const ground = new THREE.Mesh(this.plane, this.floorMat);
+        ground.position.set((sx + .5) * S, 0, (sz + .5) * S);
+        ground.receiveShadow = true;
+        g.add(ground);
+        const spec = [];
+        if (h % 13 === 0 && (sx || sz))
+            spec.push([22 + r() * 20, 22 + r() * 20, 24 + r() * 16, 24 + r() * 16, 120 + r() * 120]); // megaestrutura
+        const n = 2 + (r() * 7 | 0);
+        for (let i = 0; i < n; i++) {
+            const t = r(), x = r() * S, z = r() * S;
+            if (t < .35)
+                spec.push([x, z, 3 + r() * 6, 3 + r() * 6, 8 + r() * 40]);
+            else if (t < .6) {
+                const w = 1.4 + r() * 1.2;
+                spec.push([x, z, w, w, 10 + r() * 26]);
+            }
+            else if (t < .8)
+                spec.push([x, z, 6 + r() * 10, 6 + r() * 10, .5 + r() * 2.2]);
+            else {
+                const a = 16 + r() * 18, b = 1.6 + r() * 1.2;
+                spec.push(r() < .5 ? [x, z, a, b, 5 + r() * 7] : [x, z, b, a, 5 + r() * 7]);
+            }
+        }
+        const items = spec.filter(b => Math.hypot(sx * S + b[0], sz * S + b[1]) > 14); // área inicial livre
+        if (items.length) {
+            const m = new THREE.InstancedMesh(this.cube, this.wallMat, items.length);
+            items.forEach((b, i) => {
+                const wx = sx * S + b[0], wz = sz * S + b[1];
+                m.setMatrixAt(i, M.compose(V.set(wx, b[4] / 2, wz), Q, Sc.set(b[2], b[4], b[3])));
+                m.setColorAt(i, C.setHSL(.58, .04 + r() * .05, .55 + r() * .4));
+                boxes.push({ minX: wx - b[2] / 2, maxX: wx + b[2] / 2, minZ: wz - b[3] / 2, maxZ: wz + b[3] / 2, maxY: b[4] });
+            });
+            m.castShadow = m.receiveShadow = true;
+            g.add(m);
+        }
+        this.root.add(g);
+        return { sx, sz, group: g, boxes };
+    }
+    near(x, z) {
+        const sx = Math.floor(x / S), sz = Math.floor(z / S), out = [];
+        for (let dz = -1; dz <= 1; dz++)
+            for (let dx = -1; dx <= 1; dx++) {
+                const s = this.sectors.get(key(sx + dx, sz + dz));
+                if (s)
+                    for (const b of s.boxes)
+                        out.push(b);
+            }
+        return out;
+    }
+    resolve(p, r) {
+        const bs = this.near(p.x, p.z);
+        for (let it = 0; it < 2; it++)
+            for (const b of bs) {
+                if (b.maxY <= p.y + STEP)
+                    continue;
+                const qx = Math.max(b.minX, Math.min(p.x, b.maxX)), qz = Math.max(b.minZ, Math.min(p.z, b.maxZ)), dx = p.x - qx, dz = p.z - qz, d2 = dx * dx + dz * dz;
+                if (d2 >= r * r)
+                    continue;
+                if (d2 > 1e-9) {
+                    const d = Math.sqrt(d2), k = (r - d) / d;
+                    p.x += dx * k;
+                    p.z += dz * k;
+                }
+                else {
+                    const l = p.x - b.minX, rr = b.maxX - p.x, t = p.z - b.minZ, u = b.maxZ - p.z, m = Math.min(l, rr, t, u);
+                    if (m === l)
+                        p.x = b.minX - r;
+                    else if (m === rr)
+                        p.x = b.maxX + r;
+                    else if (m === t)
+                        p.z = b.minZ - r;
+                    else
+                        p.z = b.maxZ + r;
+                }
+            }
+    }
+    inside(x, y, z) { for (const b of this.near(x, z))
+        if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ && y > 0 && y < b.maxY)
+            return true; return false; }
+    groundAt(x, z, feetY, r) {
+        let h = 0;
+        for (const b of this.near(x, z))
+            if (b.maxY <= feetY + STEP && b.maxY > h && x > b.minX - r && x < b.maxX + r && z > b.minZ - r && z < b.maxZ + r)
+                h = b.maxY;
+        return h;
+    }
+    rayDist(o, d, maxT) {
+        let best = maxT;
+        for (const b of this.near(o.x, o.z)) {
+            let t0 = 0, t1 = best, ok = true;
+            const ax = [[o.x, d.x, b.minX, b.maxX], [o.y, d.y, 0, b.maxY], [o.z, d.z, b.minZ, b.maxZ]];
+            for (const [p, v, lo, hi] of ax) {
+                if (Math.abs(v) < 1e-8) {
+                    if (p < lo || p > hi) {
+                        ok = false;
+                        break;
+                    }
+                }
+                else {
+                    let a = (lo - p) / v, c = (hi - p) / v;
+                    if (a > c) {
+                        const s = a;
+                        a = c;
+                        c = s;
+                    }
+                    t0 = Math.max(t0, a);
+                    t1 = Math.min(t1, c);
+                    if (t0 > t1) {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if (ok && t0 < best)
+                best = t0;
+        }
+        return best;
+    }
+}
+
+// ---- player ----
+
+const R = .35, G = -24, WALK = 3.6, RUN = 7.2, JUMP = 8.5;
+const mat = (c, m, r, e = 0) => new THREE.MeshStandardMaterial({ color: c, metalness: m, roughness: r, emissive: e, emissiveIntensity: e ? 1.6 : 0 });
+class Player {
+    constructor(w) {
+        this.w = w;
+        this.group = new THREE.Group();
+        this.pos = new THREE.Vector3();
+        this.vel = new THREE.Vector3();
+        this.yaw = 0;
+        this.ground = true;
+        this.flying = false;
+        this.landing = false;
+        this.boost = false;
+        this.vert = 0; // voo: controlado pelo poder FlightPower
+        this.phase = 0;
+        this.amp = 0;
+        this.coyote = 0;
+        this.buf = 0;
+        this.dip = 0;
+        this.up = 0;
+        this.fp = 0;
+        this.tt = 0;
+        this.legs = [];
+        this.arms = [];
+        this.group.rotation.order = 'YXZ';
+        const suit = mat(0x242b32, .35, .6), trim = mat(0x8fa2ae, .8, .35), glow = mat(0x0a1a22, 0, .4, 0x6fd3ff);
+        const box = (sx, sy, sz, m, x, y, z, p = this.group) => {
+            const o = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), m);
+            o.position.set(x, y, z);
+            o.castShadow = true;
+            p.add(o);
+            return o;
+        };
+        for (const s of [-1, 1]) {
+            const l = new THREE.Group();
+            l.position.set(s * .1, .85, 0);
+            this.group.add(l);
+            box(.16, .85, .18, suit, 0, -.425, 0, l);
+            this.legs.push(l);
+            const a = new THREE.Group();
+            a.position.set(s * .28, 1.38, 0);
+            this.group.add(a);
+            box(.11, .6, .12, suit, 0, -.3, 0, a);
+            this.arms.push(a);
+        }
+        box(.42, .55, .24, suit, 0, 1.125, 0);
+        box(.3, .1, .26, trim, 0, 1.3, 0);
+        box(.3, .38, .12, trim, 0, 1.15, -.18);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(.17, 16, 12), trim);
+        head.position.y = 1.63;
+        head.castShadow = true;
+        this.group.add(head); // topo = 1,80 m
+        box(.2, .06, .05, glow, 0, 1.64, .15);
+    }
+    reset() { this.pos.set(0, 0, 0); this.vel.set(0, 0, 0); this.flying = false; this.landing = false; }
+    takeoff() { this.flying = true; this.landing = false; this.ground = false; this.vel.y = Math.max(this.vel.y, 6); }
+    land() { if (this.flying)
+        this.landing = true; }
+    update(dt, inp, camYaw, camPitch = .35) {
+        const len = Math.min(1, Math.hypot(inp.mx, inp.my)), s = Math.sin(camYaw), c = Math.cos(camYaw);
+        let dx = c * inp.mx - s * inp.my, dz = -s * inp.mx - c * inp.my;
+        const dl = Math.hypot(dx, dz);
+        if (dl > 1e-4) {
+            dx /= dl;
+            dz /= dl;
+        }
+        if (this.flying) {
+            this.tt += dt;
+            inp.jump = false;
+            const spd = (this.boost ? 17 : 9) * len, k = 1 - Math.exp(-4 * dt);
+            let ty = Math.sin(this.tt * 2.2) * .25 + this.vert * 6 - Math.sin(camPitch) * inp.my * spd * .9; // câmera para baixo = desce
+            if (this.landing)
+                ty = -3.5;
+            const sx = this.landing ? 0 : dx * spd, sz = this.landing ? 0 : dz * spd;
+            this.vel.x += (sx - this.vel.x) * k;
+            this.vel.z += (sz - this.vel.z) * k;
+            this.vel.y += (ty - this.vel.y) * k;
+        }
+        else {
+            const sp = (inp.running ? RUN : WALK) * len, k = 1 - Math.exp(-(this.ground ? 14 : 3) * dt);
+            this.vel.x += (dx * sp - this.vel.x) * k;
+            this.vel.z += (dz * sp - this.vel.z) * k;
+            this.coyote = this.ground ? .12 : this.coyote - dt;
+            if (inp.jump) {
+                this.buf = .14;
+                inp.jump = false;
+            }
+            else
+                this.buf -= dt;
+            if (this.buf > 0 && this.coyote > 0) {
+                this.vel.y = JUMP;
+                this.coyote = 0;
+                this.buf = 0;
+                this.ground = false;
+            }
+            this.vel.y += G * dt;
+        }
+        if (len > .1) {
+            let d = Math.atan2(dx, dz) - this.yaw;
+            d = Math.atan2(Math.sin(d), Math.cos(d));
+            this.yaw += d * (1 - Math.exp(-12 * dt));
+        }
+        this.pos.addScaledVector(this.vel, dt);
+        this.w.resolve(this.pos, R);
+        const gh = this.w.groundAt(this.pos.x, this.pos.z, this.pos.y, R);
+        if (this.flying) {
+            if (this.pos.y <= gh + .02 && this.vel.y <= 0) {
+                this.pos.y = gh;
+                this.vel.y = 0;
+                if (this.landing || this.vert < 0) {
+                    this.flying = false;
+                    this.landing = false;
+                    this.ground = true;
+                }
+            }
+            else
+                this.ground = false;
+            if (this.pos.y > 150) {
+                this.pos.y = 150;
+                this.vel.y = Math.min(0, this.vel.y);
+            }
+        }
+        else {
+            if (this.pos.y <= gh && this.vel.y <= 0) {
+                if (!this.ground && this.vel.y < -6)
+                    this.dip = Math.min(.12, -this.vel.y * .008);
+                this.pos.y = gh;
+                this.vel.y = 0;
+                this.ground = true;
+            }
+            else if (this.pos.y > gh + .03)
+                this.ground = false;
+        }
+        if (this.pos.y < -50)
+            this.reset();
+        const sh = Math.hypot(this.vel.x, this.vel.z);
+        this.phase += sh * dt * 1.7;
+        this.fp += ((this.flying ? 1 : 0) - this.fp) * (1 - Math.exp(-6 * dt));
+        this.amp += ((this.ground ? Math.min(1, sh / RUN) * .9 + (sh > .2 ? .1 : 0) : .25) - this.amp) * (1 - Math.exp(-10 * dt));
+        const sw = Math.sin(this.phase) * this.amp * (1 - this.fp);
+        this.up += (((this.ground || this.flying) ? 0 : 1) - this.up) * (1 - Math.exp(-8 * dt));
+        this.legs[0].rotation.x = sw + .3 * this.fp;
+        this.legs[1].rotation.x = -sw + .3 * this.fp;
+        this.arms[0].rotation.x = -sw * .8 - this.up * 1.4 + .5 * this.fp;
+        this.arms[1].rotation.x = sw * .8 - this.up * 1.4 + .5 * this.fp;
+        this.dip *= Math.exp(-9 * dt);
+        this.group.scale.y = 1 - this.dip;
+        this.group.position.copy(this.pos);
+        this.group.rotation.y = this.yaw;
+        this.group.rotation.x = this.fp * Math.min(.5, sh * .03);
+    }
+}
+
+// ---- camera ----
+
+class OrbitCam {
+    constructor(cam) {
+        this.cam = cam;
+        this.yaw = 0;
+        this.pitch = .35;
+        this.dist = 5.5;
+        this.cur = 5.5;
+        this.focus = new THREE.Vector3();
+        this.init = false;
+        this.d = new THREE.Vector3();
+    }
+    update(dt, inp, sens, p, w) {
+        const k = .0052 * sens;
+        this.yaw -= inp.lx * k;
+        this.pitch = Math.max(-.25, Math.min(1.3, this.pitch + inp.ly * k));
+        inp.lx = inp.ly = 0;
+        const ty = p.y + 1.5;
+        if (!this.init) {
+            this.focus.set(p.x, ty, p.z);
+            this.init = true;
+        }
+        const a = 1 - Math.exp(-16 * dt);
+        this.focus.x += (p.x - this.focus.x) * a;
+        this.focus.y += (ty - this.focus.y) * a;
+        this.focus.z += (p.z - this.focus.z) * a;
+        const cp = Math.cos(this.pitch);
+        this.d.set(Math.sin(this.yaw) * cp, Math.sin(this.pitch), Math.cos(this.yaw) * cp);
+        const allow = Math.max(.8, w.rayDist(this.focus, this.d, this.dist + .3) - .3);
+        this.cur = allow < this.cur ? allow : this.cur + (allow - this.cur) * (1 - Math.exp(-4 * dt)); // encolhe na hora, volta suave
+        this.cam.position.copy(this.focus).addScaledVector(this.d, this.cur);
+        if (this.cam.position.y < .4)
+            this.cam.position.y = .4;
+        this.cam.lookAt(this.focus);
+    }
+}
+
+// ---- swarm ----
+
+const MAXN = 8000;
+const ss = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+class Swarm {
+    constructor() {
+        this.total = 4000;
+        this.forms = [];
+        this.pos = new Float32Array(MAXN * 3);
+        this.tgt = new Float32Array(MAXN * 3);
+        this.rot = new Float32Array(MAXN * 3);
+        this.spin = new Float32Array(MAXN * 3);
+        this.idle = new Float32Array(MAXN * 3);
+        this.scl = new Float32Array(MAXN).fill(.05);
+        this.jit = new Float32Array(MAXN);
+        this.eu = new THREE.Euler();
+        this.q = new THREE.Quaternion();
+        this.m = new THREE.Matrix4();
+        this.p = new THREE.Vector3();
+        this.s = new THREE.Vector3();
+        const mat = new THREE.MeshStandardMaterial({ color: 0xaab5bf, metalness: .95, roughness: .32, envMapIntensity: 1.1 });
+        this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, MAXN);
+        this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        this.mesh.frustumCulled = false;
+        this.mesh.castShadow = true;
+        this.mesh.count = this.total;
+        let a = 12345;
+        const r = () => { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; };
+        for (let i = 0; i < MAXN; i++) {
+            const j = i * 3;
+            let x, y, z;
+            do {
+                x = r() * 2 - 1;
+                y = r() * 2 - 1;
+                z = r() * 2 - 1;
+            } while (x * x + y * y + z * z > 1);
+            this.idle[j] = x * .36;
+            this.idle[j + 1] = 1.15 + y * .36;
+            this.idle[j + 2] = -.42 + z * .3;
+            this.pos[j] = this.idle[j];
+            this.pos[j + 1] = this.idle[j + 1];
+            this.pos[j + 2] = this.idle[j + 2];
+            for (let k = 0; k < 3; k++) {
+                this.rot[j + k] = r() * 6.283;
+                this.spin[j + k] = (r() < .5 ? -1 : 1) * (3 + r() * 5);
+            }
+            this.jit[i] = r() * .15;
+        }
+    }
+    addForm(start, count, sc) { const f = { start, count, sc, active: false, t0: -1e9 }; this.forms.push(f); return f; }
+    set(f, on, t) { f.active = on; f.t0 = t; }
+    own(i, t) {
+        let b = null;
+        for (const f of this.forms)
+            if (i >= f.start && i < f.start + f.count && (f.active || t - f.t0 < 1.7) && (!b || f.t0 > b.t0))
+                b = f;
+        return b;
+    }
+    setTotal(n) { this.total = Math.max(100, Math.min(MAXN, n | 0)); this.mesh.count = this.total; }
+    update(dt, t, pm) {
+        const E = pm.elements, n = this.total, P = this.pos, T = this.tgt, R = this.rot, S = this.spin, I = this.idle, ks = Math.min(1, 6 * dt);
+        for (let i = 0; i < n; i++) {
+            const j = i * 3, f = this.own(i, t);
+            let hand = false, e = 1e3, ts = .05;
+            if (f) {
+                e = t - f.t0 - ((i - f.start) / f.count) * .9 - this.jit[i];
+                hand = f.active ? e > 0 : e <= 0;
+                if (hand)
+                    ts = f.sc;
+            } // a montagem "varre" a forma
+            let tx, ty, tz;
+            if (hand) {
+                tx = T[j];
+                ty = T[j + 1];
+                tz = T[j + 2];
+            }
+            else {
+                const x = I[j], y = I[j + 1], z = I[j + 2];
+                tx = E[0] * x + E[4] * y + E[8] * z + E[12];
+                ty = E[1] * x + E[5] * y + E[9] * z + E[13];
+                tz = E[2] * x + E[6] * y + E[10] * z + E[14];
+            }
+            const dx = tx - P[j], dy = ty - P[j + 1], dz = tz - P[j + 2], dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            const k = e <= 0 ? 14 : 3 + 11 * ss(e / .8); // acelera ao partir, desacelera ao chegar
+            let vx = dx * k, vy = dy * k, vz = dz * k;
+            if (e > 0 && e < 1.6) {
+                const h = Math.hypot(dx, dz) + 1e-3, sw = 4 * (1 - e / 1.6) * Math.min(1, dist / 2);
+                vx += -dz / h * sw;
+                vz += dx / h * sw;
+                vy += Math.sin(t * 6 + i) * sw * .3;
+            } // trajetória curva
+            P[j] += vx * dt;
+            P[j + 1] += vy * dt;
+            P[j + 2] += vz * dt;
+            const ds = Math.min(1, dist * 1.5);
+            R[j] += S[j] * dt * ds;
+            R[j + 1] += S[j + 1] * dt * ds;
+            R[j + 2] += S[j + 2] * dt * ds; // gira em trânsito, trava ao encaixar
+            const sc = this.scl[i] + (ts - this.scl[i]) * ks;
+            this.scl[i] = sc;
+            const vib = hand && dist < .08 ? 1 + .07 * Math.sin(t * 35 + i) : 1;
+            this.p.set(P[j], P[j + 1], P[j + 2]);
+            this.eu.set(R[j], R[j + 1], R[j + 2]);
+            this.q.setFromEuler(this.eu);
+            this.s.setScalar(sc * vib);
+            this.m.compose(this.p, this.q, this.s);
+            this.mesh.setMatrixAt(i, this.m);
+        }
+        this.mesh.instanceMatrix.needsUpdate = true;
+    }
+}
+
+// ---- power ----
+
+const cl = (x, a, b) => Math.max(a, Math.min(b, x));
+const dp = (dt, k) => 1 - Math.exp(-k * dt);
+const s01 = (x) => { x = cl(x, 0, 1); return x * x * (3 - 2 * x); };
+// Faíscas: pool fixo de 240 pontos (sem alocação em tempo de execução).
+class Sparks {
+    constructor() {
+        this.n = 240;
+        this.head = 0;
+        const n = this.n;
+        this.p = new Float32Array(n * 3);
+        this.c = new Float32Array(n * 3);
+        this.v = new Float32Array(n * 3);
+        this.life = new Float32Array(n);
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(this.p, 3));
+        g.setAttribute('color', new THREE.BufferAttribute(this.c, 3));
+        this.pts = new THREE.Points(g, new THREE.PointsMaterial({ size: .14, vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+        this.pts.frustumCulled = false;
+    }
+    emitDir(x, y, z, dx, dy, dz, count, speed, spread) {
+        for (let k = 0; k < count; k++) {
+            const i = this.head, j = i * 3;
+            this.head = (i + 1) % this.n;
+            this.p[j] = x;
+            this.p[j + 1] = y;
+            this.p[j + 2] = z;
+            this.v[j] = dx * speed + (Math.random() - .5) * spread;
+            this.v[j + 1] = dy * speed + (Math.random() - .5) * spread;
+            this.v[j + 2] = dz * speed + (Math.random() - .5) * spread;
+            this.life[i] = .3 + Math.random() * .3;
+        }
+    }
+    emit(x, y, z, count, speed) {
+        for (let k = 0; k < count; k++) {
+            const i = this.head, j = i * 3, a = Math.random() * 6.283, u = .3 + Math.random() * .7;
+            this.head = (i + 1) % this.n;
+            this.p[j] = x;
+            this.p[j + 1] = y;
+            this.p[j + 2] = z;
+            this.v[j] = Math.cos(a) * speed * u;
+            this.v[j + 1] = Math.random() * speed * .7;
+            this.v[j + 2] = Math.sin(a) * speed * u;
+            this.life[i] = .5 + Math.random() * .6;
+        }
+    }
+    update(dt) {
+        const v = this.v;
+        for (let i = 0; i < this.n; i++) {
+            const j = i * 3;
+            if (this.life[i] > 0) {
+                this.life[i] -= dt;
+                v[j + 1] -= 14 * dt;
+                this.p[j] += v[j] * dt;
+                this.p[j + 1] += v[j + 1] * dt;
+                this.p[j + 2] += v[j + 2] * dt;
+                if (this.p[j + 1] < .05) {
+                    this.p[j + 1] = .05;
+                    v[j + 1] *= -.3;
+                }
+                const f = Math.min(1, Math.max(0, this.life[i]) * 1.6);
+                this.c[j] = f;
+                this.c[j + 1] = f * .7;
+                this.c[j + 2] = f * .35;
+            }
+            else
+                this.c[j] = this.c[j + 1] = this.c[j + 2] = 0;
+        }
+        this.pts.geometry.attributes.position.needsUpdate = true;
+        this.pts.geometry.attributes.color.needsUpdate = true;
+    }
+}
+class Crates {
+    constructor() {
+        this.group = new THREE.Group();
+        this.list = [];
+        this.tmp = new THREE.Vector3();
+        const geo = new THREE.BoxGeometry(1.2, 1.2, 1.2), mt = new THREE.MeshStandardMaterial({ color: 0x7d8790, metalness: .8, roughness: .45, envMapIntensity: .9 });
+        for (let i = 0; i < 10; i++) {
+            const a = i * .628 + .3, r = 8 + (i % 3) * 2.5, m = new THREE.Mesh(geo, mt);
+            m.position.set(Math.cos(a) * r, .6, Math.sin(a) * r);
+            m.castShadow = m.receiveShadow = true;
+            this.group.add(m);
+            this.list.push({ m, v: new THREE.Vector3(), held: false });
+        }
+    }
+    update(dt, w) {
+        for (const c of this.list) {
+            if (c.held)
+                continue;
+            const p = c.m.position;
+            c.v.y -= 24 * dt;
+            p.addScaledVector(c.v, dt);
+            const f = this.tmp.set(p.x, p.y - .6, p.z);
+            w.resolve(f, .85);
+            p.x = f.x;
+            p.z = f.z;
+            const g = w.groundAt(p.x, p.z, p.y - .6, .6);
+            if (p.y - .6 <= g && c.v.y <= 0) {
+                p.y = g + .6;
+                c.v.y = c.v.y < -3 ? -c.v.y * .25 : 0;
+                const k = Math.exp(-3 * dt);
+                c.v.x *= k;
+                c.v.z *= k;
+            }
+        }
+    }
+    pushPlayer(p) {
+        for (const c of this.list) {
+            const q = c.m.position;
+            if (Math.abs(q.y - .6 - p.y) > 1.4)
+                continue;
+            const dx = p.x - q.x, dz = p.z - q.z, d = Math.hypot(dx, dz);
+            if (d < 1.15 && d > 1e-4) {
+                const k = (1.15 - d) / d;
+                p.x += dx * k;
+                p.z += dz * k;
+            }
+        }
+    }
+}
+// Mão gigante: esqueleto articulado (palma + 5 dedos + braço) cujas superfícies são amostradas em unidades do enxame.
+class HandPower {
+    constructor(sw, w, crates, sparks) {
+        this.sw = sw;
+        this.w = w;
+        this.crates = crates;
+        this.sparks = sparks;
+        this.active = false;
+        this.grab = false;
+        this.point = false;
+        this.held = null;
+        this.shake = 0;
+        this.need = 0;
+        this.root = new THREE.Object3D();
+        this.palm = new THREE.Object3D();
+        this.fin = [];
+        this.cur = new Float32Array(6);
+        this.parts = [];
+        this.off = [];
+        this.smashT = -1;
+        this.hit = false;
+        this.fresh = false;
+        this.hv = new THREE.Vector3();
+        this.d = new THREE.Vector3();
+        this.pw = new THREE.Vector3();
+        this.tv = new THREE.Vector3();
+        this.prev = new THREE.Vector3();
+        this.palm.position.set(0, 0, .75);
+        this.root.add(this.palm);
+        this.surf(this.palm, 1.6, .32, 1.5, 0);
+        const L = [1, 1.2, 1.3, 1.2, .95], X = [.64, .32, 0, -.32, -.64];
+        const chain = (x, z, ry, lens, wd) => {
+            const pv = new THREE.Object3D();
+            pv.position.set(x, 0, z);
+            pv.rotation.order = 'YXZ';
+            pv.rotation.y = ry;
+            this.root.add(pv);
+            const js = [];
+            let cur = pv;
+            lens.forEach((l, i) => { if (i > 0) {
+                const j = new THREE.Object3D();
+                j.position.z = lens[i - 1];
+                cur.add(j);
+                cur = j;
+            } js.push(cur); this.surf(cur, wd, wd * .92, l, l / 2); });
+            this.fin.push(js);
+        };
+        for (let f = 0; f < 5; f++)
+            chain(X[f], 1.5, 0, [.42, .33, .25].map(k => L[f] * k), .27);
+        chain(.85, .35, .8, [.55, .45], .32); // polegar
+        const arm = Math.round(2 * Math.PI * .46 * 3.2 * 59);
+        for (let k = 0; k < arm; k++) {
+            const z = -Math.random() * 3.2, r = .38 + .17 * (-z / 3.2), a = Math.random() * 6.283;
+            this.parts.push(this.root);
+            this.off.push(Math.cos(a) * r, Math.sin(a) * r, z);
+        }
+        this.need = this.parts.length;
+        this.f = sw.addForm(0, this.need, .13);
+    }
+    surf(p, sx, sy, sz, cz) {
+        const ax = sy * sz, ay = sx * sz, az = sx * sy, tot = ax + ay + az, n = Math.round(118 * tot);
+        for (let k = 0; k < n; k++) {
+            const u = Math.random() * tot, s = Math.random() < .5 ? -.5 : .5;
+            let x = (Math.random() - .5) * sx, y = (Math.random() - .5) * sy, z = (Math.random() - .5) * sz;
+            if (u < ax)
+                x = s * sx;
+            else if (u < ax + ay)
+                y = s * sy;
+            else
+                z = s * sz;
+            this.parts.push(p);
+            this.off.push(x, y, z + cz);
+        }
+    }
+    toggle(t, total) {
+        if (this.active) {
+            this.release();
+            this.active = false;
+            this.grab = this.point = false;
+            this.sw.set(this.f, false, t);
+            return null;
+        }
+        if (total < this.need)
+            return `Unidades insuficientes: a mão precisa de ${this.need}, há ${total}.`;
+        this.active = true;
+        this.fresh = true;
+        this.sw.set(this.f, true, t);
+        return null;
+    }
+    release() { const h = this.held; if (h) {
+        h.held = false;
+        h.v.copy(this.hv).multiplyScalar(.8);
+        this.held = null;
+    } }
+    pressGrab() {
+        if (!this.active)
+            return 'Ative a mão primeiro.';
+        if (this.grab) {
+            this.grab = false;
+            this.release();
+            return null;
+        }
+        this.grab = true;
+        this.point = false;
+        this.pw.setFromMatrixPosition(this.palm.matrixWorld);
+        this.pw.y -= .9;
+        let best = null, bd = 2.6;
+        for (const c of this.crates.list) {
+            if (c.held)
+                continue;
+            const d = c.m.position.distanceTo(this.pw);
+            if (d < bd) {
+                bd = d;
+                best = c;
+            }
+        }
+        if (best) {
+            best.held = true;
+            this.held = best;
+        }
+        return null;
+    }
+    pressPoint() { if (!this.active)
+        return 'Ative a mão primeiro.'; this.point = !this.point; if (this.point) {
+        this.grab = false;
+        this.release();
+    } return null; }
+    pressSmash() { if (!this.active)
+        return 'Ative a mão primeiro.'; if (this.smashT < 0) {
+        this.smashT = 0;
+        this.hit = false;
+    } return null; }
+    impact() {
+        this.pw.setFromMatrixPosition(this.palm.matrixWorld);
+        this.sparks.emit(this.pw.x, .15, this.pw.z, 80, 9);
+        this.shake = .6;
+        for (const c of this.crates.list) {
+            if (c.held)
+                continue;
+            const p = c.m.position, dx = p.x - this.pw.x, dz = p.z - this.pw.z, d = Math.hypot(dx, dz);
+            if (d < 7) {
+                const f = 1 - d / 7, n = d || 1;
+                c.v.x += dx / n * 9 * f;
+                c.v.z += dz / n * 9 * f;
+                c.v.y += 6 * f;
+            }
+        }
+    }
+    update(dt, t, pp, cam) {
+        if (!this.active && t - this.f.t0 >= 1.6)
+            return; // sem transição em curso: nada a recalcular
+        const r = this.root;
+        if (this.active) {
+            cam.getWorldDirection(this.d);
+            const d = this.d, o = cam.position;
+            const tg = d.y < -.01 ? -o.y / d.y : 60, mx = Math.min(60, tg > 0 ? tg : 60), hit = this.w.rayDist(o, d, mx) - .2; // ponto mirado: chão ou estrutura
+            const ay = o.y + d.y * hit;
+            let dx = o.x + d.x * hit - pp.x, dz = o.z + d.z * hit - pp.z, dl = Math.hypot(dx, dz);
+            if (dl < .5) {
+                dx = d.x;
+                dz = d.z;
+                dl = Math.hypot(dx, dz) || 1;
+            }
+            dx /= dl;
+            dz /= dl;
+            const reach = cl(dl, 4.5, 16);
+            let so = 0;
+            if (this.smashT >= 0) {
+                const st = this.smashT += dt;
+                if (st < .28) {
+                    const u = st / .28;
+                    so = 2.4 * (1 - (1 - u) * (1 - u));
+                }
+                else if (st < .42) {
+                    const u = (st - .28) / .14, c3 = u * u * u;
+                    so = 2.4 * (1 - c3) - .9 * c3;
+                }
+                else {
+                    if (!this.hit) {
+                        this.hit = true;
+                        this.impact();
+                    }
+                    so = -.9 * (1 - s01((st - .42) / .48));
+                    if (st > .9) {
+                        this.smashT = -1;
+                        this.hit = false;
+                    }
+                }
+            }
+            const hy = 1.5 + cl(ay, 0, 8) + (this.held ? 1.2 : 0) + so, tx = o.x * 0 + pp.x + dx * reach, tz = pp.z + dz * reach, yaw = Math.atan2(dx, dz);
+            this.prev.copy(r.position);
+            if (this.fresh) {
+                r.position.set(tx, hy, tz);
+                r.rotation.y = yaw;
+                this.fresh = false;
+            }
+            else {
+                const k = dp(dt, 7);
+                r.position.x += (tx - r.position.x) * k;
+                r.position.z += (tz - r.position.z) * k;
+                r.position.y += (hy - r.position.y) * dp(dt, this.smashT >= 0 ? 40 : 9);
+            }
+            let e = yaw - r.rotation.y;
+            e = Math.atan2(Math.sin(e), Math.cos(e));
+            r.rotation.y += e * dp(dt, 8);
+            this.hv.copy(r.position).sub(this.prev).divideScalar(Math.max(dt, 1e-3));
+        }
+        const fist = this.active && (this.grab || this.smashT >= 0);
+        for (let f = 0; f < 6; f++) {
+            const c = !this.active ? 0 : fist ? 1 : this.point ? (f === 0 ? 0 : f === 5 ? .7 : 1) : 0;
+            this.cur[f] += (c - this.cur[f]) * dp(dt, 7 + f);
+            const m = f === 5 ? [.7, 1] : [1.1, 1.25, 1];
+            this.fin[f].forEach((j, i) => { j.rotation.x = this.cur[f] * m[i]; });
+        }
+        r.updateMatrixWorld(true);
+        const out = this.sw.tgt, tv = this.tv;
+        for (let i = 0; i < this.need; i++) {
+            if (this.sw.own(i, t) !== this.f)
+                continue;
+            tv.set(this.off[i * 3], this.off[i * 3 + 1], this.off[i * 3 + 2]).applyMatrix4(this.parts[i].matrixWorld);
+            out[i * 3] = tv.x;
+            out[i * 3 + 1] = tv.y;
+            out[i * 3 + 2] = tv.z;
+        }
+        if (!this.active)
+            return;
+        this.pw.setFromMatrixPosition(this.palm.matrixWorld);
+        if (this.held) {
+            const h = this.held, k = dp(dt, 12), p = h.m.position;
+            p.x += (this.pw.x - p.x) * k;
+            p.y += (this.pw.y - .9 - p.y) * k;
+            p.z += (this.pw.z - p.z) * k;
+            h.m.rotation.y = r.rotation.y;
+            h.v.set(0, 0, 0);
+        }
+        if (Math.hypot(this.hv.x, this.hv.z) > 1.2 && this.smashT < 0)
+            for (const c of this.crates.list) { // empurrar caixas com a palma
+                if (c.held)
+                    continue;
+                const p = c.m.position;
+                if (Math.hypot(p.x - this.pw.x, p.z - this.pw.z) < 1.5 && Math.abs(p.y - (this.pw.y - .9)) < 1.2) {
+                    const k = Math.min(1, dt * 10);
+                    c.v.x += (this.hv.x - c.v.x) * k;
+                    c.v.z += (this.hv.z - c.v.z) * k;
+                }
+            }
+    }
+}
+
+// ---- forms ----
+
+
+// Pele: pontos de amostragem (parte do esqueleto + deslocamento local) que viram alvos das unidades.
+class Skin {
+    constructor(sw, sc) {
+        this.sw = sw;
+        this.sc = sc;
+        this.parts = [];
+        this.off = [];
+        this.tv = new THREE.Vector3();
+    }
+    get n() { return this.parts.length; }
+    add(p, x, y, z) { this.parts.push(p); this.off.push(x, y, z); }
+    box(p, sx, sy, sz, cz) {
+        const ax = sy * sz, ay = sx * sz, az = sx * sy, tot = ax + ay + az, n = Math.round(2 * tot / (this.sc * this.sc));
+        for (let k = 0; k < n; k++) {
+            const u = Math.random() * tot, s = Math.random() < .5 ? -.5 : .5;
+            let x = (Math.random() - .5) * sx, y = (Math.random() - .5) * sy, z = (Math.random() - .5) * sz;
+            if (u < ax)
+                x = s * sx;
+            else if (u < ax + ay)
+                y = s * sy;
+            else
+                z = s * sz;
+            this.add(p, x, y, z + cz);
+        }
+    }
+    blade(p, L, w, th, z0) {
+        const n = Math.round(2 * L * w * .85 / (this.sc * this.sc));
+        for (let k = 0; k < n; k++) {
+            const z = Math.random() * L, hw = w / 2 * (z < .75 * L ? 1 : (L - z) / (.25 * L)), sd = Math.random() < .5 ? -1 : 1;
+            if (Math.random() < .85)
+                this.add(p, (Math.random() * 2 - 1) * hw, sd * th / 2, z0 + z);
+            else
+                this.add(p, sd * hw, (Math.random() - .5) * th, z0 + z);
+        }
+    }
+    bake(t) {
+        const f = this.f;
+        if (!f.active && t - f.t0 >= 1.7)
+            return;
+        const o = this.sw.tgt;
+        for (let i = 0; i < this.parts.length; i++) {
+            const idx = f.start + i;
+            if (this.sw.own(idx, t) !== f)
+                continue;
+            this.tv.set(this.off[i * 3], this.off[i * 3 + 1], this.off[i * 3 + 2]).applyMatrix4(this.parts[i].matrixWorld);
+            o[idx * 3] = this.tv.x;
+            o[idx * 3 + 1] = this.tv.y;
+            o[idx * 3 + 2] = this.tv.z;
+        }
+    }
+}
+class Base {
+    constructor(sw) {
+        this.sw = sw;
+        this.active = false;
+    }
+    get end() { return this.f.start + this.f.count; }
+    live(t) { return this.active || t - this.f.t0 < 1.7; }
+    toggle(t, total) {
+        if (this.active) {
+            this.active = false;
+            this.sw.set(this.f, false, t);
+            this.onOff(false);
+            return null;
+        }
+        if (total < this.end)
+            return `Unidades insuficientes: precisa de ${this.end}, há ${total}.`;
+        this.active = true;
+        this.sw.set(this.f, true, t);
+        this.onOff(true);
+        return null;
+    }
+    onOff(on) { }
+}
+// ESPADA: lâmina de ~3,4 m. Golpe rápido (corte horizontal) e forte (de cima p/ baixo), com janela de colisão e intervalo.
+class SwordPower extends Base {
+    constructor(sw, c) {
+        super(sw);
+        this.c = c;
+        this.root = new THREE.Object3D();
+        this.st = -1;
+        this.kind = 0;
+        this.cd = 0;
+        this.hitB = false;
+        this.hitG = false;
+        this.done = new Set();
+        this.prev = new THREE.Vector3();
+        this.pt = new THREE.Vector3();
+        this.vel = new THREE.Vector3();
+        this.init = false;
+        const sc = .09, sk = this.sk = new Skin(sw, sc);
+        sk.box(this.root, .14, .14, .7, .3);
+        sk.box(this.root, 1.1, .14, .16, .7);
+        sk.box(this.root, .22, .22, .22, -.1);
+        sk.blade(this.root, 3.4, .5, .09, .78);
+        this.f = sw.addForm(0, sk.n, sc);
+        sk.f = this.f;
+        this.root.rotation.order = 'YXZ';
+    }
+    act(i, down) {
+        if (!down)
+            return null;
+        if (!this.active)
+            return 'Ative a espada primeiro.';
+        if (this.st >= 0 || this.cd > 0)
+            return null; // sem ataques ilimitados: animação + intervalo
+        this.kind = i === 1 ? 1 : 0;
+        this.st = 0;
+        this.done.clear();
+        this.hitB = this.hitG = false;
+        return null;
+    }
+    end2(cd) { this.st = -1; this.cd = cd; }
+    update(dt, t) {
+        if (!this.live(t))
+            return;
+        const pl = this.c.pl, r = this.root, cs = Math.cos(pl.yaw), sn = Math.sin(pl.yaw);
+        const tx = pl.pos.x + -.55 * cs + .25 * sn, tz = pl.pos.z + .55 * sn + .25 * cs, ty = pl.pos.y + 1.2; // lado direito do personagem
+        if (!this.init) {
+            r.position.set(tx, ty, tz);
+            this.init = true;
+        }
+        else {
+            const k = dp(dt, 14);
+            r.position.x += (tx - r.position.x) * k;
+            r.position.y += (ty - r.position.y) * k;
+            r.position.z += (tz - r.position.z) * k;
+        }
+        let yo = -.25, pi = -.45, win = false;
+        if (this.st >= 0) {
+            this.st += dt;
+            if (this.kind === 0) {
+                const u = this.st / .32;
+                if (u >= 1)
+                    this.end2(.2);
+                else {
+                    yo = -1.6 + 3.2 * s01(u);
+                    pi = -.1;
+                    win = u > .25 && u < .8;
+                }
+            }
+            else {
+                const u = this.st / .85;
+                if (u >= 1)
+                    this.end2(.5);
+                else if (u < .4) {
+                    pi = -.45 - 1.45 * s01(u / .4);
+                    yo = -.25 * (1 - u / .4);
+                }
+                else if (u < .58) {
+                    const v = (u - .4) / .18;
+                    pi = -1.9 + 2.6 * v * v * v;
+                    yo = 0;
+                    win = v > .15;
+                }
+                else {
+                    const v = (u - .58) / .42;
+                    pi = .7 - 1.15 * s01(v);
+                    yo = -.25 * s01(v);
+                }
+            }
+        }
+        this.cd -= dt;
+        r.rotation.y = pl.yaw + yo;
+        r.rotation.x = pi;
+        r.updateMatrixWorld(true);
+        this.pt.set(0, 0, 4).applyMatrix4(r.matrixWorld);
+        this.vel.copy(this.pt).sub(this.prev).divideScalar(Math.max(dt, 1e-3));
+        this.prev.copy(this.pt);
+        if (win && this.active)
+            this.strike();
+        this.sk.bake(t);
+    }
+    strike() {
+        const c = this.c, heavy = this.kind === 1, p = new THREE.Vector3();
+        for (let z = 1; z <= 4; z += .5) {
+            p.set(0, 0, z).applyMatrix4(this.root.matrixWorld);
+            for (const cr of c.crates.list) {
+                if (cr.held || this.done.has(cr))
+                    continue;
+                if (cr.m.position.distanceTo(p) < 1) {
+                    cr.v.addScaledVector(this.vel, .35);
+                    cr.v.y += heavy ? 5 : 3;
+                    this.done.add(cr);
+                    c.sparks.emit(p.x, p.y, p.z, 22, 6);
+                    c.bump(heavy ? .5 : .25);
+                }
+            }
+            if (!this.hitB && c.w.inside(p.x, p.y, p.z)) {
+                this.hitB = true;
+                c.sparks.emit(p.x, p.y, p.z, 26, 7);
+                c.bump(heavy ? .55 : .3);
+            } // ponto de integração p/ destruição (Etapa 6)
+            if (heavy && !this.hitG && p.y < .12) {
+                this.hitG = true;
+                c.sparks.emit(p.x, .12, p.z, 30, 7);
+                c.bump(.5);
+            }
+        }
+    }
+}
+class ShieldPower extends Base {
+    constructor(sw, c, start) {
+        super(sw);
+        this.c = c;
+        this.root = new THREE.Object3D();
+        this.fx = new THREE.Group();
+        this.N = 800;
+        this.U = new Float32Array(800);
+        this.V = new Float32Array(800);
+        this.L = new Float32Array(800);
+        this.shape = 0;
+        this.tShape = 0;
+        this.fy = 0;
+        this.init = false;
+        this.hw = 1.3;
+        this.hh = 1;
+        this.fw = new THREE.Vector3();
+        this.pool = [];
+        const sc = .11, sk = this.sk = new Skin(sw, sc);
+        for (let i = 0; i < this.N; i++) {
+            this.U[i] = Math.random() * 2 - 1;
+            this.V[i] = Math.random() * 2 - 1;
+            this.L[i] = i & 1;
+            sk.add(this.root, 0, 0, 0);
+        }
+        this.f = sw.addForm(start, this.N, sc);
+        sk.f = this.f;
+        const g = new THREE.SphereGeometry(.22, 10, 8), mt = new THREE.MeshBasicMaterial({ color: 0xff5530 });
+        for (let i = 0; i < 6; i++) {
+            const m = new THREE.Mesh(g, mt);
+            m.visible = false;
+            this.fx.add(m);
+            this.pool.push({ m, v: new THREE.Vector3(), life: 0 });
+        }
+    }
+    act(i, down) {
+        if (!down)
+            return null;
+        if (i === 0) {
+            if (!this.active)
+                return 'Ative o escudo primeiro.';
+            this.tShape = 1 - this.tShape;
+            return null;
+        }
+        this.fire();
+        return null;
+    }
+    fire() {
+        const pl = this.c.pl;
+        this.c.cam.getWorldDirection(this.fw);
+        let fx = this.fw.x, fz = this.fw.z;
+        const l = Math.hypot(fx, fz) || 1;
+        fx /= l;
+        fz /= l;
+        const p = this.pool.find(q => q.life <= 0);
+        if (!p)
+            return;
+        p.m.position.set(pl.pos.x + fx * 18, pl.pos.y + 1.4, pl.pos.z + fz * 18);
+        p.v.set(pl.pos.x - p.m.position.x, pl.pos.y + 1.1 - p.m.position.y, pl.pos.z - p.m.position.z).normalize().multiplyScalar(16);
+        p.life = 3;
+        p.m.visible = true;
+    }
+    block(p, v, rad) {
+        const f = Math.sin(this.fy), g = Math.cos(this.fy), C = this.root.position, dx = p.x - C.x, dy = p.y - C.y, dz = p.z - C.z, z = dx * f + dz * g, x = dx * g - dz * f;
+        if (Math.abs(z) < .55 + rad && Math.abs(x) < this.hw + rad && Math.abs(dy) < this.hh + rad) {
+            const vf = v.x * f + v.z * g;
+            if (vf < 0) {
+                v.x -= 2 * vf * f;
+                v.z -= 2 * vf * g;
+                v.multiplyScalar(.6);
+                const pu = .6 + rad - z;
+                p.x += f * pu;
+                p.z += g * pu;
+                this.c.sparks.emit(p.x, p.y, p.z, 22, 6);
+                this.c.bump(.3);
+                return true;
+            }
+        }
+        return false;
+    }
+    update(dt, t) {
+        const c = this.c, pl = c.pl, r = this.root;
+        if (this.live(t)) {
+            c.cam.getWorldDirection(this.fw);
+            let fx = this.fw.x, fz = this.fw.z;
+            const l = Math.hypot(fx, fz) || 1;
+            fx /= l;
+            fz /= l;
+            const ty = Math.atan2(fx, fz);
+            if (!this.init) {
+                this.fy = ty;
+                this.init = true;
+            }
+            else {
+                let e = ty - this.fy;
+                e = Math.atan2(Math.sin(e), Math.cos(e));
+                this.fy += e * dp(dt, 10);
+            }
+            this.shape += (this.tShape - this.shape) * dp(dt, 6);
+            const s = this.shape;
+            this.hw = 1.3 - .6 * s;
+            this.hh = 1 + .6 * s;
+            r.position.set(pl.pos.x + Math.sin(this.fy) * 1.7, pl.pos.y + this.hh + .1, pl.pos.z + Math.cos(this.fy) * 1.7);
+            r.rotation.y = this.fy;
+            r.updateMatrixWorld(true);
+            const cw = 1.3 - .6 * s, ch = 1 + .6 * s, cz = .35 * (1 - s) + .15 * s, o = this.sk.off;
+            for (let i = 0; i < this.N; i++) {
+                const u = this.U[i], v = this.V[i];
+                o[i * 3] = u * cw;
+                o[i * 3 + 1] = v * ch;
+                o[i * 3 + 2] = cz * u * u + this.L[i] * .12;
+            } // curvatura + duas camadas
+            this.sk.bake(t);
+        }
+        if (this.active)
+            for (const cr of c.crates.list)
+                if (!cr.held && cr.v.length() > 2)
+                    this.block(cr.m.position, cr.v, .7);
+        for (const p of this.pool) {
+            if (p.life <= 0)
+                continue;
+            p.life -= dt;
+            const pos = p.m.position;
+            pos.addScaledVector(p.v, dt);
+            if (this.active && this.block(pos, p.v, .25))
+                continue;
+            if (Math.hypot(pos.x - pl.pos.x, pos.z - pl.pos.z) < .7 && Math.abs(pos.y - (pl.pos.y + 1.1)) < 1) {
+                c.sparks.emit(pos.x, pos.y, pos.z, 24, 7);
+                c.bump(.5);
+                p.life = 0;
+            }
+            if (pos.y < .2) {
+                c.sparks.emit(pos.x, .2, pos.z, 14, 5);
+                p.life = 0;
+            }
+            if (p.life <= 0)
+                p.m.visible = false;
+        }
+    }
+}
+// VOO: asas (4 penas por lado) + 2 propulsores presos ao personagem. A física do voo está em Player (movimento real).
+class FlightPower extends Base {
+    constructor(sw, c, start) {
+        super(sw);
+        this.c = c;
+        this.energy = 100;
+        this.wr = [];
+        this.sd = [];
+        this.thr = [];
+        this.fold = 1.3;
+        this.tv = new THREE.Vector3();
+        this.up = false;
+        this.dn = false;
+        const sc = .11, sk = this.sk = new Skin(sw, sc), g = c.pl.group;
+        for (const sd of [1, -1]) {
+            const w = new THREE.Object3D();
+            w.position.set(sd * .2, 1.35, -.2);
+            g.add(w);
+            this.wr.push(w);
+            this.sd.push(sd);
+            [2.4, 2.1, 1.8, 1.4].forEach((L, k) => { const a = .2 + k * .32, fp = new THREE.Object3D(); fp.rotation.y = sd > 0 ? Math.PI / 2 + a : -Math.PI / 2 - a; w.add(fp); sk.box(fp, .22, .05, L, L / 2); });
+            const tr = new THREE.Object3D();
+            tr.position.set(sd * .14, .98, -.3);
+            g.add(tr);
+            this.thr.push(tr);
+            sk.box(tr, .14, .3, .14, 0);
+        }
+        this.f = sw.addForm(start, sk.n, sc);
+        sk.f = this.f;
+    }
+    toggle(t, total) {
+        if (!this.active && this.energy < 15)
+            return 'Energia insuficiente para decolar.';
+        return super.toggle(t, total);
+    }
+    onOff(on) { if (on)
+        this.c.pl.takeoff();
+    else
+        this.c.pl.land(); }
+    act(i, down) {
+        const pl = this.c.pl;
+        if (!this.active) {
+            return down ? 'Ative o voo primeiro.' : null;
+        }
+        if (i === 0)
+            this.up = down;
+        else if (i === 1)
+            this.dn = down;
+        else
+            pl.boost = down;
+        pl.vert = (this.up ? 1 : 0) - (this.dn ? 1 : 0);
+        return null;
+    }
+    update(dt, t) {
+        const c = this.c, pl = c.pl;
+        if (this.active) {
+            if (!pl.flying && t - this.f.t0 > 1) {
+                this.toggle(t, 1e9);
+            } // pousou: recolhe as asas
+            else if (pl.flying && !pl.landing) {
+                this.energy -= (pl.boost ? 9 : 4) * dt;
+                if (this.energy <= 0) {
+                    this.energy = 0;
+                    c.say('Energia esgotada: pouso forçado');
+                    this.toggle(t, 1e9);
+                }
+            } // consumo de energia
+        }
+        else {
+            pl.boost = false;
+            pl.vert = 0;
+            this.up = this.dn = false;
+            if (!pl.flying)
+                this.energy = Math.min(100, this.energy + 15 * dt);
+        }
+        if (!this.live(t))
+            return;
+        this.fold += ((this.active ? .25 : 1.3) - this.fold) * dp(dt, 3);
+        const sp = Math.hypot(pl.vel.x, pl.vel.z), fl = this.active ? Math.sin(t * (8 + sp * .4)) * (.1 + Math.min(.2, sp * .015)) : 0;
+        this.wr.forEach((w, i) => { w.rotation.z = this.sd[i] * (this.fold + fl); });
+        pl.group.updateMatrixWorld(true);
+        this.sk.bake(t);
+        if (this.active && pl.flying)
+            for (const tr of this.thr) {
+                this.tv.set(0, -.2, 0).applyMatrix4(tr.matrixWorld);
+                c.sparks.emitDir(this.tv.x, this.tv.y, this.tv.z, 0, -1, 0, 2, pl.boost ? 12 : 6, 1.2);
+            } // jatos
+    }
+}
+
+// ---- main ----
+
+
+
+
+
+
+
+
+
+const cfg = { quality: 'medium', cam: 1, joy: 120, perf: true, radius: 3, units: 4000 };
+try {
+    Object.assign(cfg, JSON.parse(localStorage.getItem('mr-cfg') || '{}'));
+}
+catch { /* sem storage */ }
+if (!(cfg.quality in PROF))
+    cfg.quality = 'medium';
+const save = () => { try {
+    localStorage.setItem('mr-cfg', JSON.stringify(cfg));
+}
+catch { /* ignorar */ } };
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = .95;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(new THREE.Color().setRGB(.62, .68, .74, THREE.SRGBColorSpace), .01);
+const sunDir = new THREE.Vector3(.6, .45, .5).normalize();
+const skyMat = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, fog: false, uniforms: { sun: { value: sunDir } },
+    vertexShader: 'varying vec3 v;void main(){v=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader: 'varying vec3 v;uniform vec3 sun;void main(){float h=clamp(v.y,0.,1.);vec3 hor=vec3(.62,.68,.74),top=vec3(.16,.28,.5);vec3 c=mix(hor,top,pow(h,.55));float s=max(dot(v,sun),0.);c+=vec3(1.,.82,.6)*(pow(s,600.)*3.+pow(s,8.)*.25);if(v.y<0.)c=hor*.8;gl_FragColor=vec4(c,1.);}' });
+// O mesmo céu alimenta os reflexos PBR (sem ray tracing): ambiente de PMREM gerado uma única vez.
+const envScene = new THREE.Scene();
+envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), skyMat));
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(envScene, .02).texture;
+const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), skyMat);
+sky.frustumCulled = false;
+sky.renderOrder = -1;
+scene.add(sky);
+scene.add(new THREE.HemisphereLight(0x9db6d0, 0x3a3f44, .35));
+const sun = new THREE.DirectionalLight(0xfff0dc, 3.2);
+Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 260 });
+sun.shadow.bias = -.0004;
+sun.shadow.normalBias = .05;
+scene.add(sun, sun.target);
+const world = new World(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+scene.add(world.root);
+const player = new Player(world);
+scene.add(player.group);
+
+// ---- PERSONAGEM DE TESTE (boneco flexível, agarrável pela Mão) ----
+// Entra em crates.list: reaproveita agarrar/arremessar/empurrar/golpear da Mão. Membros balançam com a velocidade (posição entre frames).
+class Dummy {
+    constructor() {
+        const g = this.m = new THREE.Group();
+        this.v = new THREE.Vector3();
+        this.held = false;
+        this.pv = new THREE.Vector3();
+        this.ok = false;
+        this.l = [];
+        const sc = mat(0xe0702b, .2, .6), sk = mat(0xf0d2b4, 0, .7), lm = mat(0x2f6fb5, .2, .6);
+        const bx = (w, h, d, m, x, y, z, p = g) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = true; p.add(o); return o; };
+        bx(.5, .5, .28, sc, 0, .12, 0);
+        const hd = new THREE.Mesh(new THREE.SphereGeometry(.15, 14, 10), sk);
+        hd.position.y = .45; hd.castShadow = true; g.add(hd);
+        for (const s of [-1, 1]) {
+            const a = new THREE.Group(); a.position.set(s * .32, .32, 0); g.add(a); bx(.1, .5, .1, lm, 0, -.25, 0, a);
+            this.l.push({ p: a, s, arm: 1, ph: s > 0 ? 0 : Math.PI, x: 0, z: 0 });
+            const l = new THREE.Group(); l.position.set(s * .11, -.14, 0); g.add(l); bx(.14, .46, .14, lm, 0, -.23, 0, l);
+            this.l.push({ p: l, s, arm: 0, ph: s > 0 ? Math.PI : 0, x: 0, z: 0 });
+        } // altura total 1,2 m, origem no centro (igual às caixas)
+    }
+    pose(dt, t) {
+        const p = this.m.position;
+        let vx = 0, vy = 0, vz = 0;
+        if (this.ok && dt > 0) { vx = (p.x - this.pv.x) / dt; vy = (p.y - this.pv.y) / dt; vz = (p.z - this.pv.z) / dt; }
+        this.pv.copy(p); this.ok = true;
+        const fl = cl(Math.hypot(vx, vz) * .12, 0, 1) + cl(Math.abs(vy) * .05, 0, .6), lift = cl(-vy * .14, 0, 1.5), k = dp(dt, 12);
+        for (const l of this.l) {
+            const tz = l.s * (l.arm ? .12 + lift : .06 + lift * .5), tx = Math.sin(t * 11 + l.ph) * fl * (l.arm ? .9 : .6);
+            l.z += (tz - l.z) * k; l.x += (tx - l.x) * k;
+            l.p.rotation.z = l.z; l.p.rotation.x = l.x;
+        }
+    }
+}
+// ---- PING PONG: mesa de microrobots + duas mãos separadas do corpo; o boneco de teste é a bola ----
+class PingPongPower extends Base {
+    constructor(sw, c, ball) {
+        super(sw);
+        this.c = c; this.ball = ball;
+        this.root = new THREE.Object3D();
+        const sc = .13, sk = this.sk = new Skin(sw, sc), L = this.L = 5.6, W = this.W = 3.2, TOP = this.TOP = 1, r = Math.random;
+        this.HU = L / 2 + 1; this.b = { u: 0, y: 0, w: 0, vu: 0, vy: 0, vw: 0 };
+        this.wait = 0; this.cd = 0; this.srv = -1; this.last = -1; this.rally = 0; this.idle = 0;
+        for (let k = 0, n = Math.round(L * W * 1.1 / (sc * sc)); k < n; k++)
+            sk.add(this.root, (r() - .5) * L, TOP - .06, (r() - .5) * W); // tampo
+        const jt = (p, x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); p.add(o); return o; };
+        const pt = (p, x, y, z, sx, sy, sz) => { const o = jt(p, x, y, z); sk.box(o, sx, sy, sz, 0); return o; };
+        for (const sx of [-1, 1])
+            for (const sz of [-1, 1])
+                pt(this.root, sx * (L / 2 - .5), TOP / 2 - .06, sz * (W / 2 - .4), .22, TOP - .12, .22); // pés da mesa
+        for (let k = 0, n = Math.round(W * .5 * 1.1 / (sc * sc)); k < n; k++)
+            sk.add(this.root, 0, TOP + .02 + r() * .5, (r() - .5) * (W + .3)); // rede
+        this.h = [];
+        for (const s of [-1, 1]) { // jogador humanoide de 1,88 m: x = para a mesa, y = cima, z = lateral
+            const fr = jt(this.root, s * this.HU, 0, 0);
+            fr.rotation.y = s < 0 ? 0 : Math.PI;
+            pt(fr, 0, .97, 0, .34, .22, .46); // pélvis
+            const tp = jt(fr, 0, 1.05, 0); // tronco (pivô na cintura)
+            pt(tp, 0, .27, 0, .34, .56, .62); // peito largo
+            pt(tp, 0, .69, 0, .27, .28, .25); // cabeça (topo = 1,88 m)
+            const arm = (z) => { const sh = jt(tp, 0, .45, z), el = jt(sh, 0, -.4, 0); pt(sh, 0, -.2, 0, .18, .4, .18); pt(el, 0, -.2, 0, .16, .4, .16); return [sh, el]; };
+            const [sh, el] = arm(.38), [oa, oe] = arm(-.38);
+            const lgs = [];
+            for (const z of [.14, -.14]) {
+                const lg = jt(fr, 0, .94, z), kn = jt(lg, 0, -.46, 0);
+                pt(lg, 0, -.22, 0, .27, .46, .27); pt(kn, 0, -.2, 0, .22, .4, .22); pt(kn, .08, -.45, 0, .32, .1, .18);
+                lgs.push(lg);
+            }
+            const rk = jt(tp, 0, .45, .38); // raquete presa na mão do braço direito
+            pt(rk, 0, 0, 0, .2, .18, .2); pt(rk, 0, .2, 0, .07, .3, .07);
+            for (let k = 0, n = Math.round(Math.PI * .4 * .34 * 2 * 1.3 / (sc * sc)); k < n; k++) { // lâmina (face +x bate na bola)
+                const an = r() * 6.2832, d = Math.sqrt(r());
+                sk.add(rk, r() < .5 ? -.03 : .03, .7 + Math.cos(an) * d * .4, Math.sin(an) * d * .34);
+            }
+            for (let k = 0, n = Math.round(6.2832 * .37 * 1.5 / sc); k < n; k++) { // aro
+                const an = r() * 6.2832;
+                sk.add(rk, (r() - .5) * .08, .7 + Math.cos(an) * .4, Math.sin(an) * .34);
+            }
+            this.h.push({ s, fr, tp, sh, el, oa, oe, lgs, rk, zs: .38 * (s < 0 ? 1 : -1), y: 1.7, w: 0, pw: 0, sw: 0, a: 0, ph: 0 });
+        }
+        this.f = sw.addForm(0, sk.n, sc);
+        sk.f = this.f;
+    }
+    onOff(on) {
+        const b = this.ball;
+        if (on) {
+            const pl = this.c.pl, d = new THREE.Vector3();
+            this.c.cam.getWorldDirection(d); d.y = 0;
+            if (d.lengthSq() < 1e-6) d.set(0, 0, -1);
+            d.normalize();
+            const cx = pl.pos.x + d.x * 9, cz = pl.pos.z + d.z * 9, gy = this.c.w.groundAt(cx, cz, pl.pos.y + 2, 1.5);
+            this.root.position.set(cx, gy, cz);
+            this.root.rotation.y = Math.atan2(-d.x, -d.z); // eixo longo da mesa perpendicular à câmera
+            b.held = true; b.m.scale.setScalar(.6);
+            for (const h of this.h) { h.y = 1.7; h.w = 0; h.pw = 0; h.sw = 0; h.a = 0; }
+            this.reset(-1);
+        }
+        else {
+            b.held = false; b.m.scale.setScalar(1); b.m.rotation.set(0, b.m.rotation.y, 0); b.v.set(0, 0, 0);
+        }
+    }
+    reset(s) { this.srv = s; this.wait = 1.1; this.rally = 0; this.idle = 0; this.last = s; }
+    hit(s) { // raquete do lado s rebate: trajetória balística até quicar na metade oposta
+        const b = this.b, g = 12, Tb = .85, ub = -s * this.L * .22, wb = (Math.random() - .5) * this.W * .6, yb = this.TOP + .4;
+        b.vu = (ub - b.u) / Tb; b.vw = (wb - b.w) / Tb; b.vy = (yb - b.y + .5 * g * Tb * Tb) / Tb;
+        this.last = s; this.cd = .4; this.idle = 0; this.rally++; this.h[s < 0 ? 0 : 1].sw = 1;
+    }
+    act(i, down) {
+        if (!down) return null;
+        if (!this.active) return 'Ative o Ping Pong primeiro.';
+        this.reset(Math.random() < .5 ? -1 : 1);
+        return null;
+    }
+    pose(h, dt) { // animação do jogador: passos laterais, inclinação, braço direito por cinemática inversa 2 segmentos
+        const RC = .7, L1 = .4, L2 = .4;
+        const spd = Math.abs(h.w - h.pw) / Math.max(dt, 1e-3), amp = cl(spd * .15, 0, .5);
+        h.pw = h.w; h.ph += dt * (3 + spd * 2);
+        h.fr.position.z = h.w - h.zs;
+        h.lgs[0].rotation.x = amp * Math.sin(h.ph); h.lgs[1].rotation.x = -amp * Math.sin(h.ph);
+        h.tp.rotation.z = -.06 - .14 * h.sw;
+        h.oa.rotation.z = .15 + .4 * amp * Math.sin(h.ph + Math.PI); h.oe.rotation.z = .35;
+        const tau = h.a * (1 - h.sw) - 1.1 * h.sw, cx = .5 + .9 * h.sw;
+        const dx = cx + Math.sin(tau) * RC, dy = h.y - Math.cos(tau) * RC - 1.5, d = Math.hypot(dx, dy) || 1e-3, dc = cl(d, .2, L1 + L2 - .01);
+        const al = Math.atan2(dx, -dy), ga = Math.acos(cl((L1 * L1 + dc * dc - L2 * L2) / (2 * L1 * dc), -1, 1)), t1 = al - ga;
+        const px = dx / d * dc, py = dy / d * dc, ax = px - Math.sin(t1) * L1, ay = py + Math.cos(t1) * L1, t2 = Math.atan2(ax, -ay);
+        h.sh.rotation.z = t1; h.el.rotation.z = t2 - t1;
+        h.rk.position.set(px, .45 + py, .38); h.rk.rotation.z = tau;
+    }
+    sim(dt, t) {
+        const b = this.b, { TOP, L, W, HU } = this, rb = .4, g = 12, HX = HU - .5;
+        for (const h of this.h) {
+            const s = h.s, toward = this.wait <= 0 && b.vu * s > 0, k = dp(dt, 10);
+            h.y += ((toward ? cl(b.y, 1.4, 2.7) : 1.7) - h.y) * k;
+            h.w += ((toward ? cl(b.w, -W / 2 - .8, W / 2 + .8) : 0) - h.w) * k;
+            h.sw = Math.max(0, h.sw - dt * 4);
+            h.a += ((toward && Math.abs(b.u - s * HX) < 2.8 ? .6 : 0) - h.a) * k; // arma a raquete ao ver a bola chegando
+            this.pose(h, dt);
+        }
+        if (this.wait > 0) {
+            const h = this.h[this.srv < 0 ? 0 : 1];
+            this.wait -= dt;
+            b.u = this.srv * HX - this.srv * .9; b.y = h.y + .15 + Math.sin(t * 5) * .05; b.w = h.w; b.vu = b.vw = b.vy = 0;
+            if (this.wait <= 0) this.hit(this.srv);
+        }
+        else {
+            b.vy -= g * dt; b.u += b.vu * dt; b.y += b.vy * dt; b.w += b.vw * dt;
+            if (b.vy < 0 && b.y - rb <= TOP && b.y - rb > TOP - .5 && Math.abs(b.u) < L / 2 && Math.abs(b.w) < W / 2) { b.y = TOP + rb; b.vy = -b.vy * .88; }
+            if (Math.abs(b.u) < .2 && b.y - rb < TOP + .5 && b.y > TOP) { b.u = (b.u < 0 ? -1 : 1) * .2; b.vu *= -.4; } // rede
+            this.cd -= dt; this.idle += dt;
+            for (const h of this.h) {
+                const dx = b.u - h.s * HX, dy = b.y - h.y, dw = b.w - h.w;
+                if (this.cd <= 0 && b.vu * h.s > 0 && dx * dx + dy * dy + dw * dw < 1.5) { this.hit(h.s); break; }
+            }
+            if (b.y < .3 || Math.abs(b.u) > HU + 1.8 || Math.abs(b.w) > W / 2 + 4 || this.idle > 4) {
+                if (this.rally >= 3) this.c.say('Rally: ' + this.rally);
+                this.reset(-this.last);
+            }
+        }
+        const m = this.ball.m, a = this.root.rotation.y, P = this.root.position, ca = Math.cos(a), sa = Math.sin(a);
+        m.position.set(P.x + b.u * ca + b.w * sa, P.y + b.y, P.z - b.u * sa + b.w * ca);
+        m.rotation.x += 4 * dt; m.rotation.z += 2.5 * dt;
+        this.ball.v.set(0, 0, 0);
+    }
+    update(dt, t) {
+        if (!this.live(t)) return;
+        if (this.active) this.sim(dt, t);
+        this.root.updateMatrixWorld(true);
+        this.sk.bake(t);
+    }
+}
+const sparks = new Sparks(), crates = new Crates(), swarm = new Swarm(), hand = new HandPower(swarm, world, crates, sparks);
+scene.add(swarm.mesh, hand.root, sparks.pts, crates.group);
+let T = 0, shake = 0, hudTxt = '';
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, .1, 2000);
+const orbit = new OrbitCam(camera), input = new Input();
+const ctx = { pl: player, cam: camera, w: world, crates, sparks, bump: (v) => { shake = Math.max(shake, v); }, say: (s) => toast(s) };
+const sword = new SwordPower(swarm, ctx), shield = new ShieldPower(swarm, ctx, hand.need), wings = new FlightPower(swarm, ctx, hand.need + shield.f.count);
+const dummy = new Dummy();
+dummy.m.position.set(2.5, .6, 3);
+crates.group.add(dummy.m);
+crates.list.push(dummy);
+const pingpong = new PingPongPower(swarm, ctx, dummy);
+scene.add(sword.root, shield.root, shield.fx, pingpong.root);
+const powers = [
+    { name: 'Mão', slot: 'A', labels: ['Agarrar', 'Apontar', 'Golpear'], on: () => hand.active, end: () => hand.need, toggle: (t, n) => hand.toggle(t, n),
+        act: (i, d) => d ? (i === 0 ? hand.pressGrab() : i === 1 ? hand.pressPoint() : hand.pressSmash()) : null },
+    { name: 'Espada', slot: 'A', labels: ['Corte', 'Golpe forte', ''], on: () => sword.active, end: () => sword.end, toggle: (t, n) => sword.toggle(t, n), act: (i, d) => sword.act(i, d) },
+    { name: 'Escudo', slot: 'B', labels: ['Formato', 'Disparo teste', ''], on: () => shield.active, end: () => shield.end, toggle: (t, n) => shield.toggle(t, n), act: (i, d) => shield.act(i, d) },
+    { name: 'Voo', slot: 'C', labels: ['Subir', 'Descer', 'Turbo'], on: () => wings.active, end: () => wings.end, toggle: (t, n) => wings.toggle(t, n), act: (i, d) => wings.act(i, d) },
+    { name: 'Ping Pong', slot: 'A', labels: ['Novo saque', '', ''], on: () => pingpong.active, end: () => pingpong.end, toggle: (t, n) => pingpong.toggle(t, n), act: (i, d) => pingpong.act(i, d) }
+];
+let sel = 0;
+const applyScale = () => { renderer.setPixelRatio(Math.min(devicePixelRatio, perf.maxPR) * perf.scale); renderer.setSize(innerWidth, innerHeight, false); };
+const perf = new Perf(applyScale);
+function applyRadius() { world.setRadius(cfg.radius); scene.fog.density = 2.2 / (cfg.radius * 64); } // a névoa esconde a borda do mundo carregado
+function applyUnits() { swarm.setTotal(cfg.units); for (const p of powers)
+    if (p.on() && p.end() > cfg.units) {
+        p.toggle(T, cfg.units);
+        toast('Unidades reduzidas: ' + p.name + ' desmontado');
+    } }
+function applyQuality() {
+    const p = PROF[cfg.quality];
+    perf.maxPR = p.pr;
+    applyScale();
+    const on = p.shadow > 0;
+    renderer.shadowMap.enabled = on;
+    sun.castShadow = on;
+    if (on) {
+        sun.shadow.mapSize.set(p.shadow, p.shadow);
+        sun.shadow.map?.dispose();
+        sun.shadow.map = null;
+    }
+    world.mats.forEach(m => { m.needsUpdate = true; });
+    applyRadius();
+    applyUnits();
+}
+const $ = (id) => document.getElementById(id);
+const q = $('q'), rd = $('rd'), cs = $('cs'), js = $('js'), pf = $('pf'), un = $('un'), panel = $('panel');
+const sync = () => {
+    q.value = cfg.quality;
+    rd.value = '' + cfg.radius;
+    cs.value = '' + cfg.cam;
+    js.value = '' + cfg.joy;
+    pf.checked = cfg.perf;
+    un.value = '' + cfg.units;
+    document.documentElement.style.setProperty('--joy', cfg.joy + 'px');
+    perf.show = cfg.perf;
+    perf.el.style.display = cfg.perf ? 'block' : 'none';
+};
+q.onchange = () => { cfg.quality = q.value; cfg.radius = PROF[cfg.quality].radius; cfg.units = PROF[cfg.quality].units; save(); applyQuality(); sync(); };
+rd.oninput = () => { cfg.radius = +rd.value; save(); applyRadius(); };
+cs.oninput = () => { cfg.cam = +cs.value; save(); };
+js.oninput = () => { cfg.joy = +js.value; save(); sync(); };
+pf.onchange = () => { cfg.perf = pf.checked; save(); sync(); };
+$('rst').onclick = () => { player.reset(); panel.hidden = true; };
+$('open').onclick = () => { panel.hidden = false; };
+$('close').onclick = () => { panel.hidden = true; };
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); applyScale(); });
+const toastEl = $('toast'), modeEl = $('mode'), bh = $('bhand'), bg = $('bgrab'), bp = $('bpoint');
+let toastT = 0;
+function toast(s) { toastEl.textContent = s; toastEl.style.opacity = '1'; clearTimeout(toastT); toastT = window.setTimeout(() => { toastEl.style.opacity = '0'; }, 2400); }
+const say = (s) => { if (s)
+    toast(s); };
+const bs = $('bsel'), acts = [$('bgrab'), $('bpoint'), $('bsmash')];
+function labels() { const p = powers[sel]; bs.textContent = p.name; bh.textContent = p.on() ? 'Recolher' : 'Ativar'; acts.forEach((b, i) => { b.textContent = p.labels[i]; b.style.display = p.labels[i] ? '' : 'none'; }); }
+bs.onclick = () => { sel = (sel + 1) % powers.length; labels(); };
+bh.onclick = () => {
+    const p = powers[sel];
+    if (p.on()) {
+        say(p.toggle(T, cfg.units));
+        labels();
+        return;
+    }
+    if (cfg.units < p.end()) {
+        say('Unidades insuficientes: ' + p.name + ' precisa de ' + p.end() + ', há ' + cfg.units + '.');
+        return;
+    }
+    for (const q of powers)
+        if (q !== p && q.slot === p.slot && q.on())
+            q.toggle(T, cfg.units); // desativa antes: o novo poder assume as unidades
+    say(p.toggle(T, cfg.units));
+    labels();
+};
+acts.forEach((b, i) => { const go = (d) => { say(powers[sel].act(i, d)); }; b.onpointerdown = e => { e.preventDefault(); go(true); }; b.onpointerup = () => go(false); b.onpointercancel = () => go(false); b.onpointerleave = () => go(false); });
+labels();
+un.oninput = () => { cfg.units = +un.value; save(); applyUnits(); };
+function hud() {
+    const on = powers.filter(p => p.on()).map(p => p.name);
+    const used = (hand.active ? hand.need : 0) + (sword.active ? sword.f.count : 0) + (shield.active ? shield.f.count : 0) + (wings.active ? wings.f.count : 0) + (pingpong.active ? pingpong.f.count : 0);
+    const s = 'Modo: ' + (on.length ? on.join(' + ') : 'exploração') + '<br>Unidades: ' + (cfg.units - used) + '/' + cfg.units + (wings.active || wings.energy < 100 ? '<br>Energia: ' + Math.round(wings.energy) : '');
+    if (s !== hudTxt) {
+        hudTxt = s;
+        modeEl.innerHTML = s;
+    }
+    if (bh.textContent !== (powers[sel].on() ? 'Recolher' : 'Ativar'))
+        labels();
+    bh.classList.toggle('on', powers[sel].on());
+    bg.classList.toggle('on', sel === 0 && hand.grab);
+    bp.classList.toggle('on', sel === 0 && hand.point);
+}
+sync();
+world.update(0, 0);
+applyQuality();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+    const dt = Math.min(clock.getDelta(), .05);
+    T = clock.elapsedTime;
+    input.poll();
+    crates.pushPlayer(player.pos);
+    player.update(dt, input, orbit.yaw, orbit.pitch);
+    player.group.updateMatrixWorld(true);
+    orbit.update(dt, input, cfg.cam, player.pos, world);
+    camera.updateMatrixWorld();
+    hand.update(dt, T, player.pos, camera);
+    sword.update(dt, T);
+    shield.update(dt, T);
+    wings.update(dt, T);
+    pingpong.update(dt, T);
+    crates.update(dt, world);
+    dummy.pose(dt, T);
+    swarm.update(dt, T, player.group.matrixWorld);
+    sparks.update(dt);
+    shake = Math.max(shake * Math.exp(-7 * dt), hand.shake);
+    hand.shake = 0;
+    if (shake > .01) {
+        camera.position.x += (Math.random() - .5) * shake * .4;
+        camera.position.y += (Math.random() - .5) * shake * .4;
+    }
+    world.update(player.pos.x, player.pos.z);
+    sun.position.copy(player.pos).addScaledVector(sunDir, 120);
+    sun.target.position.copy(player.pos);
+    sky.position.copy(camera.position);
+    hud();
+    renderer.render(scene, camera);
+    perf.tick(dt);
+});
+
+</script></body></html>
